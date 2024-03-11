@@ -11,45 +11,65 @@ from langchain.chains import create_retrieval_chain
 import time
 from dotenv import load_dotenv
 
+from langchain_community.chat_models import ChatLiteLLM,ChatOllama
+
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+from langchain_openai import ChatOpenAI
+
 load_dotenv()  #
 
-groq_api_key = os.environ['GROQ_API_KEY']
+#groq_api_key = os.environ['GROQ_API_KEY']
 
 
 if "vector" not in st.session_state:
 
-    st.session_state.embeddings = OllamaEmbeddings()
+    st.session_state.embeddings = HuggingFaceEmbeddings(model_name="OrdalieTech/Solon-embeddings-large-0.1")
+    #st.session_state.embeddings = OllamaEmbeddings()
 
-    st.session_state.loader = WebBaseLoader("https://paulgraham.com/greatwork.html")
+    st.session_state.loader = WebBaseLoader("https://cloud-pi-native.fr/agreement/faq.html")
+#https://en.wikipedia.org/wiki/Special:Random")
     st.session_state.docs = st.session_state.loader.load()
 
-    st.session_state.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    st.session_state.text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=400,
+        chunk_overlap=80,
+        separators=["\n\n", "\n"],
+#, " ", ""],
+        length_function=len)
     st.session_state.documents = st.session_state.text_splitter.split_documents( st.session_state.docs)
     st.session_state.vector = FAISS.from_documents(st.session_state.documents, st.session_state.embeddings)
 
-st.title("Chat with Docs - Groq Edition :) ")
+st.title("RAG démonstrateur")
 
-llm = ChatGroq(
-            groq_api_key=groq_api_key, 
-            model_name='mixtral-8x7b-32768'
-    )
+st.write("""Voici le template créé pour que Mixtral réponde en français:
+```
+<contexte>
+{context}
+</contexte>
+
+D'après le contexte répondez en français à cette requête: {input}
+```
+""")
+#llm = ChatGroq(
+#            groq_api_key=groq_api_key, 
+#            model_name='mixtral-8x7b-32768'
+#    )
+llm = ChatOpenAI(model_name="mixtral",openai_api_key="EMPTY",openai_api_base="https://example.com/v1",temperature=.2)
 
 prompt = ChatPromptTemplate.from_template("""
-Answer the following question based only on the provided context. 
-Think step by step before providing a detailed answer. 
-I will tip you $200 if the user finds the answer helpful. 
-<context>
+<contexte>
 {context}
-</context>
+</contexte>
 
-Question: {input}""")
+D'après le contexte répondez en français à cette requête: {input}""")
 
 document_chain = create_stuff_documents_chain(llm, prompt)
 
 retriever = st.session_state.vector.as_retriever()
 retrieval_chain = create_retrieval_chain(retriever, document_chain)
 
-prompt = st.text_input("Input your prompt here")
+prompt = st.text_input("Entrer votre requête.")
 
 
 # If the user hits enter
@@ -59,13 +79,12 @@ if prompt:
     response = retrieval_chain.invoke({"input": prompt})
     print(f"Response time: {time.process_time() - start}")
 
-    st.write(response["answer"])
+    st.markdown(response["answer"])
 
     # With a streamlit expander
-    with st.expander("Document Similarity Search"):
+    with st.expander("Détails"):
         # Find the relevant chunks
         for i, doc in enumerate(response["context"]):
-            # print(doc)
-            # st.write(f"Source Document # {i+1} : {doc.metadata['source'].split('/')[-1]}")
+            st.write(f"Source Document # {i+1} : {doc.metadata['source'].split('/')[-1]}")
             st.write(doc.page_content)
             st.write("--------------------------------")
